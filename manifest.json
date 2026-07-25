@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Fix Quera",
-  "version": "0.5.5",
-  "description": "نمایش ددلاین، هارد ددلاین، تأخیر، باکت‌های تأخیر، وضعیت انجام و فیلتر ددلاین‌ها در کوئرا.",
+  "version": "0.5.6",
+  "description": "Fix Quera adds the UX pieces Quera is missing — the ones you have been quietly working around all semester.",
   "permissions": ["storage"],
   "browser_specific_settings": {
     "gecko": {
