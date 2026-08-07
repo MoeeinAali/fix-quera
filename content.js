@@ -690,6 +690,10 @@ function injectStyles() {
       font-variant-numeric: tabular-nums;
     }
 
+    .qdv-course-delay-estimated-value {
+      color: #b7791f;
+    }
+
     .qdv-assignment-delay {
       gap: 3px;
       margin-inline-start: 6px;
@@ -702,7 +706,7 @@ function injectStyles() {
       font-weight: 500;
     }
 
-    .qdv-assignment-delay:not(.is-loading):not(.is-stale):not(.is-error) {
+    .qdv-assignment-delay:not(.is-loading):not(.is-stale):not(.is-error):not(.is-unsubmitted-delay) {
       color: var(--qdv-primary);
     }
 
@@ -710,8 +714,12 @@ function injectStyles() {
       border-color: var(--qdv-primary);
     }
 
-    .qdv-course-delay.is-loading,
-    .qdv-course-delay.is-stale {
+    .qdv-assignment-delay.is-unsubmitted-delay {
+      color: #b7791f;
+    }
+
+    .qdv-course-delay.is-loading:not(.is-unsubmitted-delay),
+    .qdv-course-delay.is-stale:not(.is-unsubmitted-delay) {
       color: var(--qdv-muted);
       background: transparent;
       border-color: var(--qdv-border);
@@ -744,6 +752,18 @@ function injectStyles() {
       color: #feb2b2;
       background: rgba(254, 178, 178, 0.12);
       border-color: rgba(254, 178, 178, 0.18);
+    }
+
+    html[data-theme="dark"] .qdv-assignment-delay.is-unsubmitted-delay,
+    [data-theme="dark"] .qdv-assignment-delay.is-unsubmitted-delay,
+    body.chakra-ui-dark .qdv-assignment-delay.is-unsubmitted-delay {
+      color: #fbd38d;
+    }
+
+    html[data-theme="dark"] .qdv-course-delay-estimated-value,
+    [data-theme="dark"] .qdv-course-delay-estimated-value,
+    body.chakra-ui-dark .qdv-course-delay-estimated-value {
+      color: #fbd38d;
     }
 
     .qdv-calendar-button {
@@ -1481,14 +1501,21 @@ function injectStyles() {
     }
 
     #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-progress-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
       height: 100%;
       width: 0;
       background: var(--qdv-primary);
       border-radius: inherit;
-      transition: width 160ms ease;
+      transition: width 160ms ease, left 160ms ease;
     }
 
-    #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-card.is-over .qdv-bucket-progress-fill {
+    #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-progress-fill.is-unsubmitted {
+      background: #b7791f;
+    }
+
+    #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-card.is-over .qdv-bucket-progress-fill:not(.is-unsubmitted) {
       background: #dc4040;
     }
 
@@ -1515,6 +1542,10 @@ function injectStyles() {
 
     #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-metric-value.is-over {
       color: #dc4040;
+    }
+
+    #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-metric-value.is-estimated {
+      color: #b7791f;
     }
 
     #${COURSE_DELAY_BUCKET_PANEL_ID} button,
@@ -2020,6 +2051,12 @@ function injectStyles() {
     [data-theme="dark"] #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-card,
     body.chakra-ui-dark #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-card {
       background: var(--qdv-surface);
+    }
+
+    html[data-theme="dark"] #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-progress-fill.is-unsubmitted,
+    [data-theme="dark"] #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-progress-fill.is-unsubmitted,
+    body.chakra-ui-dark #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-progress-fill.is-unsubmitted {
+      background: #fbd38d;
     }
 
     html[data-theme="dark"] #${COURSE_DELAY_BUCKET_PANEL_ID} .qdv-bucket-button.is-danger,
@@ -3693,6 +3730,7 @@ function createCourseDelayState(courseId, courseName, assignments, assignmentSta
     delaySecondsByAssignment: new Map(),
     delayHoursByAssignment: new Map(),
     delayLabelByAssignment: new Map(),
+    unsubmittedLiveDelaySecondsByAssignment: new Map(),
     statusByAssignment: new Map(),
     failedAssignments: new Set(),
     pendingAssignments: new Set(assignments.map((assignment) => assignment.id))
@@ -4056,10 +4094,13 @@ function applyAssignmentDelayResult(state, assignment, result) {
     Boolean(result.manual) ||
     hasAssignmentDelayOverride(state.assignmentState, assignment.id);
   const hadKnownValue = state.delaySecondsByAssignment.has(assignment.id);
-  const delayLabel = getDelayDisplayLabel(delaySeconds, {
-    hasManualOverride,
-    delaySamples: result.delaySamples
-  });
+  const liveDelaySeconds = getUnsubmittedLiveDelaySeconds(result, hasManualOverride);
+  const delayLabel = liveDelaySeconds !== null
+    ? formatDelay(liveDelaySeconds)
+    : getDelayDisplayLabel(delaySeconds, {
+        hasManualOverride,
+        delaySamples: result.delaySamples
+      });
 
   state.pendingAssignments.delete(assignment.id);
   state.statusByAssignment.set(assignment.id, status);
@@ -4085,6 +4126,12 @@ function applyAssignmentDelayResult(state, assignment, result) {
     state.failedAssignments.delete(assignment.id);
   }
 
+  if (liveDelaySeconds !== null) {
+    state.unsubmittedLiveDelaySecondsByAssignment.set(assignment.id, liveDelaySeconds);
+  } else {
+    state.unsubmittedLiveDelaySecondsByAssignment.delete(assignment.id);
+  }
+
   state.delaySecondsByAssignment.set(assignment.id, delaySeconds);
   state.delayHoursByAssignment.set(assignment.id, delayHours);
   state.delayLabelByAssignment.set(assignment.id, delayLabel);
@@ -4092,7 +4139,7 @@ function applyAssignmentDelayResult(state, assignment, result) {
     assignment,
     status,
     delayLabel,
-    { hasManualOverride }
+    { hasManualOverride, isUnsubmittedLiveDelay: liveDelaySeconds !== null }
   );
   renderCourseAssignmentCalendarFromDelayResult(state, assignment, result);
   updateCourseTotalBadge(state);
@@ -4110,6 +4157,37 @@ function getDelayDisplayLabel(delaySeconds, options = {}) {
   return formatDelay(delaySeconds);
 }
 
+function getLiveDelaySecondsSinceDeadline(normalDeadline, hardDeadline) {
+  const normalMs = Date.parse(normalDeadline || "");
+  if (!Number.isFinite(normalMs)) {
+    return null;
+  }
+
+  const now = Date.now();
+  if (now <= normalMs) {
+    return null;
+  }
+
+  const hardMs = Date.parse(hardDeadline || "");
+  if (Number.isFinite(hardMs) && now >= hardMs) {
+    return null;
+  }
+
+  return (now - normalMs) / 1000;
+}
+
+function getUnsubmittedLiveDelaySeconds(result, hasManualOverride) {
+  if (hasManualOverride) {
+    return null;
+  }
+
+  if (!Array.isArray(result?.delaySamples) || result.delaySamples.length > 0) {
+    return null;
+  }
+
+  return getLiveDelaySecondsSinceDeadline(result.normalDeadline, result.hardDeadline);
+}
+
 function waitForCourseQueueDelay() {
   const delayMs = getRateLimitDelayMs();
   return new Promise((resolve) => {
@@ -4125,6 +4203,7 @@ function insertAssignmentDelayBadge(assignment, status, value, options = {}) {
   const badge = getOrCreateAssignmentDelayBadge(assignment);
   badge.className = `qdv-course-delay qdv-assignment-delay is-${status}`;
   badge.classList.toggle("has-override", Boolean(options.hasManualOverride));
+  badge.classList.toggle("is-unsubmitted-delay", Boolean(options.isUnsubmittedLiveDelay));
   badge.title = getAssignmentDelayTitle(status, options);
   if (value === "بدون ارسال" || value === "بدون تاخیر") {
     badge.replaceChildren(document.createTextNode(value));
@@ -4461,9 +4540,20 @@ function createCourseDelayValue(value) {
   return valueElement;
 }
 
+function createCourseDelayEstimatedValue(value) {
+  const valueElement = document.createElement("span");
+  valueElement.className = "qdv-course-delay-value qdv-course-delay-estimated-value";
+  valueElement.textContent = value;
+  return valueElement;
+}
+
 function getAssignmentDelayTitle(status, options = {}) {
   if (options.hasManualOverride) {
     return "تاخیر دستی؛ برای ویرایش کلیک کنید";
+  }
+
+  if (options.isUnsubmittedLiveDelay) {
+    return "هنوز ارسال نشده؛ تاخیر تخمینی تا همین لحظه است، برای ثبت دستی کلیک کنید";
   }
 
   if (status === COURSE_DELAY_STATUS.loading) {
@@ -4678,6 +4768,9 @@ function updateCourseTotalBadge(state) {
     (sum, hours) => sum + hours,
     0
   );
+  const unsubmittedTotalHours = Array.from(
+    state.unsubmittedLiveDelaySecondsByAssignment.values()
+  ).reduce((sum, seconds) => sum + getRoundedDelayHours(seconds), 0);
   const hasAllValues = state.delayHoursByAssignment.size === state.assignments.length;
   const complete = state.pendingAssignments.size === 0;
   const hasFailures = state.failedAssignments.size > 0;
@@ -4698,10 +4791,22 @@ function updateCourseTotalBadge(state) {
     : hasFailures
       ? "مجموع ناقص است؛ دریافت تاخیر بعضی تمرین‌ها ناموفق بود"
       : "مجموع تاخیر ارسال‌های نهایی";
+
+  if (hasAllValues && unsubmittedTotalHours > 0) {
+    total.title += "؛ بخش کهربایی تاخیر تخمینیِ تمرین‌های ارسال‌نشده و در حال تاخیر است";
+  }
+
   total.replaceChildren(
     document.createTextNode("مجموع تاخیر"),
     createCourseDelayValue(hasAllValues ? formatDelay(totalHours * 3600) : "...")
   );
+
+  if (hasAllValues && unsubmittedTotalHours > 0) {
+    total.append(
+      document.createTextNode(" + "),
+      createCourseDelayEstimatedValue(formatDelay(unsubmittedTotalHours * 3600))
+    );
+  }
 
   scheduleDelayBucketPanelRender(state);
 }
@@ -5561,22 +5666,48 @@ function createDelayBucketProgress(summary) {
   progress.className = "qdv-bucket-progress";
   progress.setAttribute("aria-hidden", "true");
 
-  const fill = document.createElement("div");
-  fill.className = "qdv-bucket-progress-fill";
-  const percent = summary.capacityHours > 0
+  const usedPercent = summary.capacityHours > 0
     ? Math.min(100, Math.max(0, (summary.usedHours / summary.capacityHours) * 100))
     : summary.usedHours > 0
       ? 100
       : 0;
-  fill.style.width = `${percent}%`;
 
+  const fill = document.createElement("div");
+  fill.className = "qdv-bucket-progress-fill";
+  fill.style.left = "0%";
+  fill.style.width = `${usedPercent}%`;
   progress.appendChild(fill);
+
+  const unsubmittedPercent = summary.capacityHours > 0 && summary.unsubmittedHours > 0
+    ? Math.min(100 - usedPercent, Math.max(0, (summary.unsubmittedHours / summary.capacityHours) * 100))
+    : 0;
+
+  if (unsubmittedPercent > 0) {
+    const unsubmittedFill = document.createElement("div");
+    unsubmittedFill.className = "qdv-bucket-progress-fill is-unsubmitted";
+    unsubmittedFill.style.left = `${usedPercent}%`;
+    unsubmittedFill.style.width = `${unsubmittedPercent}%`;
+    progress.appendChild(unsubmittedFill);
+  }
+
   return progress;
 }
 
 function createDelayBucketMetrics(summary) {
   const metrics = document.createElement("div");
   metrics.className = "qdv-bucket-metrics";
+
+  if (summary.unsubmittedHours > 0) {
+    metrics.appendChild(
+      createDelayBucketMetric(
+        "تاخیر تخمینی",
+        formatUsedHours(summary.unsubmittedHours),
+        false,
+        true
+      )
+    );
+  }
+  
   metrics.append(
     createDelayBucketMetric("مصرف‌شده", formatUsedHours(summary.usedHours)),
     createDelayBucketMetric(
@@ -5590,7 +5721,7 @@ function createDelayBucketMetrics(summary) {
   return metrics;
 }
 
-function createDelayBucketMetric(label, value, over = false) {
+function createDelayBucketMetric(label, value, over = false, estimated = false) {
   const metric = document.createElement("div");
   metric.className = "qdv-bucket-metric";
 
@@ -5601,6 +5732,7 @@ function createDelayBucketMetric(label, value, over = false) {
   const valueElement = document.createElement("span");
   valueElement.className = "qdv-bucket-metric-value";
   valueElement.classList.toggle("is-over", over);
+  valueElement.classList.toggle("is-estimated", estimated);
   valueElement.textContent = value;
 
   metric.append(labelElement, valueElement);
@@ -5625,6 +5757,14 @@ function createDelayBucketNote(summary, overlaps) {
   if (overlaps.length) {
     note.classList.add("has-warning");
     note.textContent = `${formatPersianNumber(overlaps.length)} تمرین در بیش از یک باکت شمرده می‌شود.`;
+    return note;
+  }
+
+  if (summary.unsubmittedHours > 0) {
+    note.classList.add("has-warning");
+    note.textContent = summary.unsubmittedAssignments.length === 1
+      ? "بخش دوم نوار، تاخیر تخمینیِ یک تمرین ارسال‌نشده است که هنوز جزو مصرف‌شده به حساب نیامده."
+      : `بخش دوم نوار، تاخیر تخمینیِ ${formatPersianNumber(summary.unsubmittedAssignments.length)} تمرین ارسال‌نشده است که هنوز جزو مصرف‌شده به حساب نیامده.`;
     return note;
   }
 
@@ -5853,11 +5993,30 @@ function getDelayBucketSummary(courseDelayState, bucket) {
     usedHours += chargedHours;
   });
 
+  let unsubmittedHours = 0;
+  const unsubmittedAssignments = [];
+  includedAssignments.forEach((assignment) => {
+    const liveSeconds = courseDelayState.unsubmittedLiveDelaySecondsByAssignment.get(assignment.id);
+    if (!liveSeconds) {
+      return;
+    }
+
+    const chargedHours = getDelayBucketChargedHours(liveSeconds, bucket.rounding);
+    if (chargedHours <= 0) {
+      return;
+    }
+
+    unsubmittedHours += chargedHours;
+    unsubmittedAssignments.push(assignment);
+  });
+
   const capacityHours = Math.max(0, Number(bucket.capacityHours) || 0);
   return {
     assignments: includedAssignments,
     chargedHoursByAssignment,
     usedHours,
+    unsubmittedHours,
+    unsubmittedAssignments,
     capacityHours,
     remainingHours: capacityHours - usedHours,
     pendingCount,
